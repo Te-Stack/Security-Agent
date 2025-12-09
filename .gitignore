@@ -1,0 +1,20 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# --- Security (CRITICAL) ---
+.env
+.env.local
+
+# --- Vision Agent Models (Large Files) ---
+# You generally don't want to commit large weights (6MB+)
+*.pt
+*.engine
+*.onnx
