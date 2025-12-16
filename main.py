@@ -1,122 +1,141 @@
 import asyncio
 import os
-import logging
 import time
+import logging
+import sys
 from vision_agents.core import agents, User
 import vision_agents.plugins.getstream as getstream_plugin
 from getstream import AsyncStream
+from vision_agents.plugins.ultralytics import YOLOPoseProcessor
 from ultralytics import YOLO
 import vision_agents.plugins.gemini as gemini
 
-# Import the Pose Processor to inherit from (Fixes the "Video Track" compatibility)
-from vision_agents.plugins.ultralytics import YOLOPoseProcessor
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("SecurityAgent")
+logging.basicConfig(level=logging.INFO, format='%(message)s', stream=sys.stdout)
 
-class SecurityLogic(YOLOPoseProcessor):
-    def __init__(self, call, model_name="yolov8n.pt", cooldown=5.0):
-        # Initialize parent to establish the video track
-        super().__init__(model=model_name, confidence=0.5)
-        
-        self.call = call
+
+print("\n🚀 SECURITY DASHBOARD - ARGUMENT ORDER FIX\n", flush=True)
+
+
+# --- GLOBAL VARIABLES ---
+ACTIVE_CALL_ID = "security-demo-working"
+STREAM_CLIENT = None
+
+
+class SecurityYOLOProcessor(YOLOPoseProcessor):
+    def __init__(self, model="yolo11n-pose.pt", confidence=0.5, cooldown=5.0):
+        super().__init__(model=model, confidence=confidence)
         self.cooldown = cooldown
         self.last_alert_time = 0
-        
-        # Load the detection model
-        logger.info(f"Loading YOLO model: {model_name}...")
-        self.model = YOLO(model_name) 
+        self.frame_count = 0
+       
+        print("📦 Loading detection model...", flush=True)
+        self.detect_model = YOLO("yolov8n.pt")
+        print("✅ Processor Ready", flush=True)
+   
+    async def _process_pose_async(self, frame_data):
+        # 1. Parent Logic
+        annotated = await super()._process_pose_async(frame_data)
+       
+        self.frame_count += 1
+        if self.frame_count % 30 == 0:
+            print(f"💓 Frame {self.frame_count}", flush=True)
+       
+        # 2. Detection Logic
+        try:
+            if self.frame_count % 5 == 0:
+                results = self.detect_model(frame_data, verbose=False)
+                person_count = 0
+                for box in results[0].boxes:
+                    if int(box.cls) == 0:
+                        person_count += 1
+               
+                if person_count > 0:
+                    await self._send_alert(person_count)
+        except Exception as e:
+            pass
+       
+        return annotated
+   
+    async def _send_alert(self, person_count):
+        now = time.time()
+       
+        if (now - self.last_alert_time) > self.cooldown:
+            print(f"\n🚨 {person_count} PERSON(S) DETECTED! Sending Alert...", flush=True)
+           
+            try:
+                if STREAM_CLIENT:
+                    # 🛠️ FIX: SIMPLE FLAT PAYLOAD
+                    # We don't try to nest "custom" inside "custom".
+                    # We just send the data directly.
+                    payload = {
+                        "alert_trigger": "intrusion", # <--- The Key we will look for
+                        "message": f"{person_count} Intruder(s) Detected",
+                        "person_count": person_count,
+                        "timestamp": now
+                    }
 
-    async def process(self, frame, **kwargs):
-        results = self.model(frame, verbose=False)
-        annotated_frame = results[0].plot()
 
-        # --- ULTRA SENSITIVE LOGIC ---
-        # 1. Did we get ANY bounding box?
-        has_box = len(results[0].boxes) > 0
-        
-        # 2. Did we get ANY keypoints?
-        has_pose = False
-        if hasattr(results[0], 'keypoints') and results[0].keypoints is not None:
-            # Check if ANY point is visible (Confidence > 0.01)
-            if results[0].keypoints.has_visible:
-                has_pose = True
-
-        # Trigger if EITHER is true
-        if has_box or has_pose:
-            now = time.time()
-            if (now - self.last_alert_time > self.cooldown):
-                print(f"\n🚨 INTRUDER DETECTED! 🚨", flush=True)
-                
-                try:
-                    await self.call.client.video.send_call_event(
-                        call_type="default",
-                        call_id="security-demo-1",
-                        event_content={
-                            "type": "custom",
-                            "custom_type": "intrusion_alert",
-                            "data": {"message": "Person detected", "timestamp": now}
-                        }
+                    await STREAM_CLIENT.video.send_call_event(
+                        "default",         # Call Type
+                        ACTIVE_CALL_ID,    # Call ID
+                        "security_agent",  # User ID
+                        payload            # The Data
                     )
-                    print("✅ Signal sent", flush=True)
-                except Exception as e:
-                    print(f"❌ Failed: {e}", flush=True)
-
+                   
+                    print(f"✅ ALERT SENT!", flush=True)
+                else:
+                    print(f"❌ CRITICAL: Global CLIENT variable is missing!", flush=True)
+               
                 self.last_alert_time = now
-        
-        return annotated_frame
+               
+            except Exception as e:
+                print(f"❌ Alert Failed: {e}", flush=True)
+
 
 async def main():
+    global STREAM_CLIENT
+   
     api_key = os.getenv("STREAM_API_KEY")
     api_secret = os.getenv("STREAM_API_SECRET")
     gemini_key = os.getenv("GEMINI_API_KEY")
 
-    if not api_key or not gemini_key: 
-        raise ValueError("❌ Missing API Keys in .env")
 
-    # 1. Initialize Stream Client (Async)
-    # FIX: Removed 'location="us-east"'
+    if not api_key: raise ValueError("❌ Check .env")
+
+
     client = AsyncStream(api_key=api_key, api_secret=api_secret)
-    
-    call_id = "security-demo-1"
-    
-    # Create the Call Object
-    call = client.video.call("default", call_id)
-    await call.get_or_create(data={
-        "created_by": { "id": "security-bot", "name": "Security Bot", "role": "admin" }
-    })
-    
-    logger.info(f"📹 Security Feed Active. Call ID: {call_id}")
-
-    # 2. Initialize Edge & LLM
-    # FIX: Removed 'location="us-east"'
+    STREAM_CLIENT = client
+   
+    call = client.video.call("default", ACTIVE_CALL_ID)
+    await call.get_or_create(data={"created_by": {"id": "security-bot"}})
+   
+    print(f"📹 Call ID: {ACTIVE_CALL_ID}", flush=True)
+   
+    processor = SecurityYOLOProcessor(
+        model="yolo11n-pose.pt",
+        confidence=0.5,
+        cooldown=5.0
+    )
+   
     edge = getstream_plugin.Edge(api_key=api_key, api_secret=api_secret)
     llm = gemini.LLM(model="gemini-1.5-flash", api_key=gemini_key)
-    bot_user = User(id="security_agent", name="Security Guard")
-
-    # 3. Initialize Logic
-    security_processor = SecurityLogic(call=call)
-
-    # 4. Create Agent
+   
     agent = agents.Agent(
         edge=edge,
         llm=llm,
-        agent_user=bot_user,
-        processors=[security_processor]
+        agent_user=User(id="security_agent", name="Security Guard"),
+        processors=[processor]
     )
-
-    logger.info("🤖 Agent is starting... Join the call in your browser!")
-    
-    # 5. Join and Run
+   
+    print("🤖 Agent joining...", flush=True)
     await agent.join(call)
-    
-    # Keep the script running
-    logger.info("Agent running. Press Ctrl+C to stop.")
+    print("✅ AGENT LIVE!", flush=True)
+   
     try:
-        while True:
-            await asyncio.sleep(1)
-    except asyncio.CancelledError:
-        logger.info("Stopping agent...")
+        while True: await asyncio.sleep(1)
+    except KeyboardInterrupt: pass
+
 
 if __name__ == "__main__":
     asyncio.run(main())
