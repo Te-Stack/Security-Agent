@@ -9,7 +9,8 @@ example (`main.py`) and a small helper (`get_token.py`) for generating Stream to
 **Quick start**
 - **Initialize the project:**
 
-	```uv init
+	```powershell
+        uv init
         uv add "vision-agents[getstream, gemini]" vision-agents-plugins-ultralytics ultralytics
 	```
 
