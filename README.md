@@ -32,7 +32,7 @@ example (`main.py`) and a small helper (`get_token.py`) for generating Stream to
 **Files of interest**
 - [main.py](main.py): Demo agent runner. Loads models, joins a Stream Video call, and sends alerts when people are detected.
 - [get_token.py](get_token.py): Simple helper that prints a Stream token for a local user (used for local client demos).
-- `yolo11n-pose.pt` and `yolov8n.pt`: Pre-downloaded model files used by the demo .
+- `yolo11n-pose.pt` and `yolo11n.pt`: Pre-downloaded model files used by the demo .
 
 **Run the demo**
 

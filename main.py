@@ -30,7 +30,7 @@ class SecurityYOLOProcessor(YOLOPoseProcessor):
         self.frame_count = 0
        
         print("📦 Loading detection model...", flush=True)
-        self.detect_model = YOLO("yolov8n.pt")
+        self.detect_model = YOLO("yolo11n.pt")
         print("✅ Processor Ready", flush=True)
    
     async def _process_pose_async(self, frame_data):
