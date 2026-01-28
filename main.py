@@ -12,7 +12,7 @@ import vision_agents.plugins.gemini as gemini
 
 
 logging.basicConfig(level=logging.INFO, format='%(message)s', stream=sys.stdout)
-
+logging.getLogger("vision_agents").setLevel(logging.CRITICAL)
 
 print("\n🚀 SECURITY DASHBOARD - ARGUMENT ORDER FIX\n", flush=True)
 
